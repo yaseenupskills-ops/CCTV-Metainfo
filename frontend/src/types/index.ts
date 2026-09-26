@@ -121,6 +121,10 @@ export interface Analysis {
   started_at: string | null
   completed_at: string | null
   error_message: string | null
+  // Compact counts derived server-side, present on list endpoints. `result` is
+  // only returned by the detail endpoint because it embeds every event's
+  // per-frame metrics, which is far too heavy to send per list row.
+  summary?: Record<string, unknown> | null
   result?: Record<string, unknown> | null
 }
 

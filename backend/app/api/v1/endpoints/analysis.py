@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.enums import AnalysisType
 from app.core.exceptions import ValidationError
 from app.schemas.analysis import AnalysisDetail, AnalysisStart
+from app.services.analysis_summary import build_analysis_summary
 from app.services.audit_service import AuditService
 from app.services.evidence_service import get_evidence_or_404
 from app.services.frame_analysis_service import create_pending_analysis
@@ -74,15 +75,7 @@ def analyze_evidence(
             "analysis_type": analysis.analysis_type.value,
             "sampling_rate": sampling_rate,
             "status": analysis.status.value,
-            "result_summary": _result_summary(analysis),
+            "result_summary": build_analysis_summary(analysis),
         },
     )
     return AnalysisDetail.model_validate(analysis)
-
-
-def _result_summary(analysis) -> dict:
-    """Extract a compact summary from an analysis result for the audit log."""
-    result = analysis.result or {}
-    if analysis.analysis_type is AnalysisType.SCENE_CHANGE:
-        return {"events": len(result.get("events", []))}
-    return {"frames_sampled": result.get("frames_sampled")}

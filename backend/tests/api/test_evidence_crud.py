@@ -147,6 +147,31 @@ def test_evidence_detail_includes_metadata_and_analyses(
     assert body["analyses"][0]["id"] == str(analysis.id)
 
 
+def test_evidence_detail_analysis_rows_carry_summary(
+    client: TestClient, case: Case, db_session: Session, sample_video: Path
+):
+    """EvidenceDetail embeds AnalysisRead rows, so they gain summary too.
+
+    The nested `analyses` list is a second consumer of the schema; the
+    validator covers it without the endpoint doing anything.
+    """
+    evidence_id = upload(
+        client, case.id, sample_video.read_bytes(), filename="nested.mp4"
+    ).json()["id"]
+    _make_analysis(
+        db_session,
+        uuid.UUID(evidence_id),
+        analysis_type=AnalysisType.SCENE_CHANGE,
+        result={"events": [{"timestamp": 1.0}, {"timestamp": 2.0}]},
+    )
+
+    body = client.get(f"/api/v1/evidence/{evidence_id}").json()
+
+    assert len(body["analyses"]) == 1
+    assert body["analyses"][0]["summary"] == {"events": 2}
+    assert "result" not in body["analyses"][0], "the nested row must stay small"
+
+
 def test_evidence_detail_unknown_404(client: TestClient):
     resp = client.get(f"/api/v1/evidence/{uuid.uuid4()}")
     assert resp.status_code == 404

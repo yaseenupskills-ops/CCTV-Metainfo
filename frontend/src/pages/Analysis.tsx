@@ -14,15 +14,20 @@ import { formatDateTime } from '../utils/format'
 
 const ACTIVE_STATUSES: AnalysisStatus[] = ['queued', 'processing']
 
+// List rows only carry the server-derived `summary`; the full `result` is
+// present on the detail response. Read whichever is available so the column is
+// populated either way.
 function resultSummary(analysis: Analysis): string {
-  const result = analysis.result
-  if (!result) return '—'
+  const source = analysis.summary ?? analysis.result
+  if (!source) return '—'
   if (analysis.analysis_type === 'scene_change') {
-    const events = result.events
-    const count = Array.isArray(events) ? events.length : 0
+    // `summary` carries a pre-counted number; `result` carries the array.
+    const events = source.events
+    const count = typeof events === 'number' ? events : Array.isArray(events) ? events.length : 0
     return `${count} event${count === 1 ? '' : 's'}`
   }
-  return `${String(result.frames_sampled ?? '?')} frame${result.frames_sampled === 1 ? '' : 's'} sampled`
+  const frames = source.frames_sampled
+  return `${String(frames ?? '?')} frame${frames === 1 ? '' : 's'} sampled`
 }
 
 function formatParams(params: Record<string, unknown>): string {
