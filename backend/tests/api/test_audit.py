@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -248,3 +249,111 @@ def test_audit_pagination(client, db_session, admin_user: User, case: Case):
     assert body["total"] >= 5
     assert len(body["items"]) <= 2
     assert body["total_pages"] >= 1
+
+
+# --- date-range filtering / pagination -----------------------------------
+
+_AUDIT_BASE = datetime(2026, 3, 1, 12, 0, 0)
+
+
+def _log_at(db, *, days: int, action: str = "evidence.upload") -> str:
+    """Insert an audit log at a known offset from _AUDIT_BASE."""
+    entry = AuditLog(
+        action=action,
+        entity_type="evidence",
+        timestamp=_AUDIT_BASE + timedelta(days=days),
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return str(entry.id)
+
+
+def test_audit_date_range_narrows_total(client, db_session, admin_user: User):
+    """The endpoint's `total` must respect date_from, not count the whole table."""
+    for day in range(5):
+        _log_at(db_session, days=day)
+
+    resp = client.get(
+        "/api/v1/audit-logs",
+        headers=_admin_headers(admin_user),
+        params={
+            "date_from": (_AUDIT_BASE + timedelta(days=3)).isoformat(),
+            "page_size": 100,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert len(body["items"]) == 2
+    assert body["total"] == 2, (
+        f"date_from returned {body['total']} of 5 rows; the count query ignored "
+        "the date filter"
+    )
+
+
+def test_audit_date_range_pagination_has_no_empty_pages(
+    client, db_session, admin_user: User
+):
+    """A date-filtered listing must not promise pages that are empty.
+
+    Regression for the drift where the page query was date-filtered and the
+    count query was not, so the UI rendered 5 pages over 2 matching rows.
+    """
+    for day in range(5):
+        _log_at(db_session, days=day)
+
+    params = {
+        "date_from": (_AUDIT_BASE + timedelta(days=3)).isoformat(),
+        "page_size": 1,
+    }
+    first = client.get(
+        "/api/v1/audit-logs", headers=_admin_headers(admin_user), params=params
+    ).json()
+    assert first["total"] == 2
+    assert first["total_pages"] == 2
+
+    for page in range(1, first["total_pages"] + 1):
+        body = client.get(
+            "/api/v1/audit-logs",
+            headers=_admin_headers(admin_user),
+            params={**params, "page": page},
+        ).json()
+        assert body["items"], f"page {page} of {first['total_pages']} was empty"
+
+
+def test_audit_date_range_with_no_matches(client, db_session, admin_user: User):
+    for day in range(5):
+        _log_at(db_session, days=day)
+
+    body = client.get(
+        "/api/v1/audit-logs",
+        headers=_admin_headers(admin_user),
+        params={
+            "date_from": (_AUDIT_BASE + timedelta(days=30)).isoformat(),
+            "page_size": 10,
+        },
+    ).json()
+
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["total_pages"] == 0
+
+
+def test_audit_date_range_combines_with_action(client, db_session, admin_user: User):
+    for day in range(5):
+        _log_at(db_session, days=day, action="evidence.upload")
+    for day in range(5):
+        _log_at(db_session, days=day, action="case.create")
+
+    body = client.get(
+        "/api/v1/audit-logs",
+        headers=_admin_headers(admin_user),
+        params={
+            "action": "evidence.upload",
+            "date_from": (_AUDIT_BASE + timedelta(days=3)).isoformat(),
+        },
+    ).json()
+
+    assert body["total"] == 2
+    assert all(item["action"] == "evidence.upload" for item in body["items"])

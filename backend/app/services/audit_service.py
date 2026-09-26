@@ -49,26 +49,32 @@ class AuditService:
         """Return {items: AuditLogRead[], page, page_size, total, total_pages}."""
         from sqlalchemy import func, select
 
-        stmt = select(AuditLog).join(User, AuditLog.user_id == User.id, isouter=True)
-
+        # The filters are assembled once and applied to both the page query and
+        # the count query. Building them separately is what let the count drift
+        # out of sync: date_from/date_to were added to the page query only, so
+        # `total` counted the whole table and `total_pages` promised pages that
+        # came back empty.
+        conditions = []
         if user_id is not None:
-            stmt = stmt.where(AuditLog.user_id == user_id)
+            conditions.append(AuditLog.user_id == user_id)
         if entity_type is not None:
-            stmt = stmt.where(AuditLog.entity_type == entity_type)
+            conditions.append(AuditLog.entity_type == entity_type)
         if action is not None:
-            stmt = stmt.where(AuditLog.action == action)
+            conditions.append(AuditLog.action == action)
         if date_from is not None:
-            stmt = stmt.where(AuditLog.timestamp >= date_from)
+            conditions.append(AuditLog.timestamp >= date_from)
         if date_to is not None:
-            stmt = stmt.where(AuditLog.timestamp <= date_to)
+            conditions.append(AuditLog.timestamp <= date_to)
 
-        count_stmt = select(func.count(AuditLog.id))
-        if user_id is not None:
-            count_stmt = count_stmt.where(AuditLog.user_id == user_id)
-        if entity_type is not None:
-            count_stmt = count_stmt.where(AuditLog.entity_type == entity_type)
-        if action is not None:
-            count_stmt = count_stmt.where(AuditLog.action == action)
+        stmt = (
+            select(AuditLog)
+            .join(User, AuditLog.user_id == User.id, isouter=True)
+            .where(*conditions)
+        )
+
+        # The count needs no join: user_id is a foreign key, so the outer join
+        # cannot duplicate an audit_logs row.
+        count_stmt = select(func.count(AuditLog.id)).where(*conditions)
 
         total = db.execute(count_stmt).scalar_one()
         stmt = stmt.order_by(AuditLog.timestamp.asc())
