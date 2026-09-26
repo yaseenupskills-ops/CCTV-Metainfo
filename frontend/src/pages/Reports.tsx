@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { listCases, listEvidence, generateReport, listReports, downloadReport } from '../api/client'
@@ -25,9 +26,13 @@ export default function Reports() {
 
   const [formCaseId, setFormCaseId] = useState('')
   const [formEvidenceId, setFormEvidenceId] = useState<string | null>(null)
-  const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
   const [genSuccess, setGenSuccess] = useState<string | null>(null)
+
+  // The auto-dismiss timer is cleared on unmount: previously it outlived the
+  // page and set state on an unmounted component.
+  const successTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(successTimer.current), [])
 
   const createMutation = useMutation({
     mutationFn: () => generateReport({
@@ -39,7 +44,8 @@ export default function Reports() {
       setGenSuccess('Report generation started.')
       setGenError(null)
       queryClient.invalidateQueries({ queryKey: ['reports'] })
-      setTimeout(() => setGenSuccess(null), 3000)
+      clearTimeout(successTimer.current)
+      successTimer.current = setTimeout(() => setGenSuccess(null), 3000)
     },
     onError: (err: unknown) => {
       const detail =
@@ -51,13 +57,13 @@ export default function Reports() {
     },
   })
 
-  function handleCaseChange(event: any) {
+  function handleCaseChange(event: ChangeEvent<HTMLSelectElement>) {
     const id = event.target.value
     setFormCaseId(id)
     setFormEvidenceId(null)
   }
 
-  function handleEvidenceChange(event: any) {
+  function handleEvidenceChange(event: ChangeEvent<HTMLSelectElement>) {
     setFormEvidenceId(event.target.value || null)
   }
 
@@ -80,10 +86,9 @@ export default function Reports() {
 
         <form
           onSubmit={
-            event => {
+            (event: FormEvent<HTMLFormElement>) => {
               event.preventDefault()
               if (formCaseId.trim()) {
-                setGenerating(true)
                 setGenError(null)
                 createMutation.mutate()
               }
@@ -102,7 +107,7 @@ export default function Reports() {
               className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-slate-200 focus:border-accent focus:outline-none"
             >
               <option value="">Select a case</option>
-              {cases?.items?.map((c: any) => (
+              {cases?.items?.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.case_number}
                 </option>
@@ -121,7 +126,7 @@ export default function Reports() {
               className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-slate-200 focus:border-accent focus:outline-none"
             >
               <option value="">Select evidence</option>
-              {evidences?.items?.map((e: any) => (
+              {evidences?.items?.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.evidence_number}
                 </option>
@@ -132,10 +137,10 @@ export default function Reports() {
           <div className="col-span-2">
             <button
               type="submit"
-              disabled={generating}
+              disabled={createMutation.isPending}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {generating ? 'Generating…' : 'Generate Report'}
+              {createMutation.isPending ? 'Generating…' : 'Generate Report'}
             </button>
           </div>
         </form>
