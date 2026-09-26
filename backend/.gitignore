@@ -1,0 +1,50 @@
+# ============================================
+# Backend — local-only files
+# Defense in depth: the root .gitignore already
+# covers most of this. Kept explicit so the
+# backend is safe even if moved on its own.
+# ============================================
+
+# --- Environment / secrets — never commit ---
+.env
+.env.*
+!.env.example
+
+# --- Evidence storage (matches storage/ and storage_smoke/) ---
+storage/
+storage*/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.egg-info/
+
+# --- Local databases / SQL dumps ---
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+
+# --- Media & test artifacts ---
+# Generated at test time by tests/fixtures/generate_samples.py
+*.mp4
+*.mov
+*.avi
+*.mkv
+tests/fixtures/generated/
+
+# --- Logs ---
+logs/
+*.log

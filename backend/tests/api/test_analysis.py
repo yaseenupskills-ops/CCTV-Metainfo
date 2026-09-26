@@ -1,0 +1,179 @@
+import uuid
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.enums import AnalysisStatus, EvidenceStatus
+from app.models import Analysis, AuditLog, Case, Evidence
+from tests.helpers import FAKE_MP4, upload
+
+
+def _upload_sample(client: TestClient, case: Case, sample_video: Path) -> str:
+    resp = upload(client, case.id, sample_video.read_bytes(), filename="sample.mp4")
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+def test_analyze_frame_sampling_completes(
+    client: TestClient, case: Case, sample_video: Path, db_session: Session
+):
+    evidence_id = _upload_sample(client, case, sample_video)
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "frame_sampling", "sampling_rate": 1},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["analysis_type"] == "frame_sampling"
+    assert body["status"] == "completed"
+    assert body["params"]["sampling_rate"] == 1
+    assert body["result"]["sampling_rate"] == 1
+    assert body["result"]["frames_sampled"] >= 1
+    assert body["started_at"] is not None
+    assert body["completed_at"] is not None
+
+    evidence = db_session.get(Evidence, uuid.UUID(evidence_id))
+    assert evidence is not None
+    assert evidence.status == EvidenceStatus.ANALYZED
+
+
+def test_analyze_records_status_transitions(
+    client: TestClient, case: Case, sample_video: Path, db_session: Session
+):
+    evidence_id = _upload_sample(client, case, sample_video)
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "frame_sampling", "sampling_rate": 1},
+    )
+    assert resp.status_code == 200
+
+    analysis = db_session.execute(
+        select(Analysis).where(Analysis.evidence_id == uuid.UUID(evidence_id))
+    ).scalar_one()
+    assert analysis.status == AnalysisStatus.COMPLETED
+    assert analysis.result is not None
+
+
+def test_analyze_defaults_sampling_rate(client: TestClient, case: Case, sample_video: Path):
+    evidence_id = _upload_sample(client, case, sample_video)
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "frame_sampling"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["params"]["sampling_rate"] == 1
+
+
+def test_analyze_rejects_unsupported_sampling_rate(
+    client: TestClient, case: Case, sample_video: Path
+):
+    evidence_id = _upload_sample(client, case, sample_video)
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "frame_sampling", "sampling_rate": 7},
+    )
+    assert resp.status_code == 422
+
+
+def test_analyze_rejects_unsupported_type(client: TestClient, case: Case, sample_video: Path):
+    evidence_id = _upload_sample(client, case, sample_video)
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "comparison", "sampling_rate": 1},
+    )
+    assert resp.status_code == 422
+
+
+def test_analyze_scene_change_completes(
+    client: TestClient, case: Case, scene_change_video_factory, db_session: Session
+):
+    video = scene_change_video_factory()
+    evidence_id = upload(client, case.id, video.read_bytes(), filename="scene.mp4").json()["id"]
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "scene_change", "sampling_rate": 1, "threshold": 0.5},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["analysis_type"] == "scene_change"
+    assert body["status"] == "completed"
+    assert body["params"]["sampling_rate"] == 1
+    assert body["params"]["threshold"] == 0.5
+    assert body["result"]["threshold"] == 0.5
+    assert body["result"]["events"], "expected an event at the scene cut"
+
+    evidence = db_session.get(Evidence, uuid.UUID(evidence_id))
+    assert evidence is not None
+    assert evidence.status == EvidenceStatus.ANALYZED
+
+
+def test_analyze_scene_change_defaults_threshold(
+    client: TestClient, case: Case, scene_change_video_factory
+):
+    video = scene_change_video_factory()
+    evidence_id = upload(client, case.id, video.read_bytes(), filename="scene.mp4").json()["id"]
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "scene_change", "sampling_rate": 1},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["params"]["threshold"] == 0.35
+
+
+def test_analyze_scene_change_rejects_bad_threshold(
+    client: TestClient, case: Case, sample_video: Path
+):
+    evidence_id = _upload_sample(client, case, sample_video)
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "scene_change", "sampling_rate": 1, "threshold": 0.0},
+    )
+    assert resp.status_code == 422
+
+
+def test_analyze_unknown_evidence_404(client: TestClient):
+    resp = client.post(
+        f"/api/v1/evidence/{uuid.uuid4()}/analyze",
+        json={"analysis_type": "frame_sampling", "sampling_rate": 1},
+    )
+    assert resp.status_code == 404
+
+
+def test_analyze_fails_on_corrupt_file(client: TestClient, case: Case, db_session: Session):
+    evidence_id = upload(client, case.id, FAKE_MP4).json()["id"]
+    resp = client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "frame_sampling", "sampling_rate": 1},
+    )
+    assert resp.status_code == 500
+
+    # The worker writes through its own session, so drop this session's stale
+    # copy of the Analysis (queued) before re-reading the persisted state.
+    db_session.expire_all()
+    analysis = db_session.execute(
+        select(Analysis).where(Analysis.evidence_id == uuid.UUID(evidence_id))
+    ).scalar_one()
+    assert analysis.status == AnalysisStatus.FAILED
+    assert analysis.error_message
+
+
+def test_analyze_writes_audit_log(
+    client: TestClient, case: Case, sample_video: Path, db_session: Session
+):
+    evidence_id = _upload_sample(client, case, sample_video)
+    client.post(
+        f"/api/v1/evidence/{evidence_id}/analyze",
+        json={"analysis_type": "frame_sampling", "sampling_rate": 1},
+    )
+
+    entry = db_session.execute(
+        select(AuditLog).where(AuditLog.action == "evidence.analyze")
+    ).scalar_one_or_none()
+    assert entry is not None
+    assert entry.entity_id == uuid.UUID(evidence_id)
+    assert entry.details["sampling_rate"] == 1
+    assert entry.details["status"] == "completed"

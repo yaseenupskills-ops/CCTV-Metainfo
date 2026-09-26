@@ -1,0 +1,41 @@
+[project]
+name = "cctv-forensic-analyzer-backend"
+version = "0.1.0"
+description = "Backend for the CCTV Forensic Analyzer"
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = ["alembic/versions", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "media: requires FFmpeg/FFprobe (automatically skipped when unavailable)",
+    "security: security hardening behaviour",
+]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+ignore_missing_imports = true
+exclude = ["alembic/versions"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/workers/*", "app/db/seed.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 60
