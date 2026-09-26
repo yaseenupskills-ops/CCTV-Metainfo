@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://cctv_user:change_me@localhost:5432/cctv_forensics"
 
     # Security
-    jwt_secret: str = "change_me_generate_a_long_random_string"
+    # No usable default: JWT_SECRET must be supplied by the environment.
+    # An empty default keeps the module importable (tests, Alembic, tooling)
+    # while _reject_placeholder_secrets() in app/main.py refuses to boot the
+    # application without a real value. See docs/SECURITY.md.
+    jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
