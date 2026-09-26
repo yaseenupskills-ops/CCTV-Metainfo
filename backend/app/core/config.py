@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     # Rate limiting
     login_rate_limit: str = "5/minute"
 
+    # Bootstrap admin (first seed only; an existing admin is never modified)
+    admin_email: str = "admin@cctv.local"
+    # Empty means "generate a random password on first seed and write it to
+    # storage/.admin_credentials". Never logged.
+    admin_password: str = ""
+
     # Request hardening
     max_request_body_size: int = 1024 * 1024  # 1 MB for JSON bodies
 
@@ -75,6 +81,15 @@ class Settings(BaseSettings):
     @property
     def storage_reports_dir(self) -> Path:
         return self.storage_path / "reports"
+
+    @property
+    def admin_credentials_file(self) -> Path:
+        """Where a generated bootstrap password is written.
+
+        Lives under storage_path so it is on the same volume as the rest of
+        the deployment state (/app/storage in Docker).
+        """
+        return self.storage_path / ".admin_credentials"
 
     def ensure_storage_dirs(self) -> None:
         for directory in (

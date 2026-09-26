@@ -42,6 +42,10 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env file}
+      # Bootstrap admin, applied on first seed only. Leave ADMIN_PASSWORD empty
+      # to have one generated into /app/storage/.admin_credentials (mode 0600).
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@cctv.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       STORAGE_PATH: /app/storage
       CORS_ORIGINS: '["http://localhost", "http://127.0.0.1"]'
     volumes:
@@ -72,6 +76,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env file}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@cctv.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       STORAGE_PATH: /app/storage
     volumes:
       - evidence-storage:/app/storage
