@@ -33,11 +33,29 @@ class AuditLog(Base):
     user: Mapped["User | None"] = relationship(back_populates="audit_logs")
 
 
+# Mapper-level before_update / before_delete are called as
+# (mapper, connection, target). The previous signature took two positional
+# arguments, so the listener raised TypeError instead of the intended
+# ArgumentError: the write was still refused, but with a message that pointed
+# at the listener rather than at the immutability rule, and the guard was
+# untested. It is also a convenient place to note that this only covers writes
+# that go through the ORM; migration 0004 adds the database-level trigger that
+# the unit suite cannot exercise.
+
+
 @event.listens_for(AuditLog, "before_update")
-def _audit_log_before_update(target: AuditLog, _: sa.Connection, **__) -> None:
+def _audit_log_before_update(
+    _mapper: type[AuditLog],
+    _connection: sa.Connection,
+    _target: AuditLog,
+) -> None:
     raise ArgumentError("audit_logs are immutable and cannot be updated")
 
 
 @event.listens_for(AuditLog, "before_delete")
-def _audit_log_before_delete(target: AuditLog, _: sa.Connection, **__) -> None:
+def _audit_log_before_delete(
+    _mapper: type[AuditLog],
+    _connection: sa.Connection,
+    _target: AuditLog,
+) -> None:
     raise ArgumentError("audit_logs are immutable and cannot be deleted")

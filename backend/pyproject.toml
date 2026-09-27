@@ -22,6 +22,7 @@ addopts = "-q"
 markers = [
     "media: requires FFmpeg/FFprobe (automatically skipped when unavailable)",
     "security: security hardening behaviour",
+    "postgres: requires a disposable Postgres named by TEST_DATABASE_URL",
 ]
 
 [tool.mypy]
